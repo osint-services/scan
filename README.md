@@ -18,3 +18,16 @@ A FastAPI-based project that searches for usernames across various websites usin
 ### Endpoints
 
 - GET `/{username}` - Pass the username that you would like searched. If this is the first time the username has been searched then the search results will need to be built for the first time. Previous lookups will use the cached results until they are invalidated.
+
+Data is returned with the format of:
+```json
+[{
+    "name": "GitHub",
+    "uri_check": "https://github.com/osint-services",
+    "cat": "coding"
+}, {
+    "name": "Facebook",
+    "uri_check": "https://facebook.com/osint-services",
+    "cat": "social"
+}]
+```
