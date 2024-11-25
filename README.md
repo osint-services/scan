@@ -1,4 +1,4 @@
-# Find Username Service
+# WhatsMyName
 A FastAPI-based project that searches for usernames across various websites using the WhatsMyName dataset. The project includes a SQLite-backed database to track search history, site data, and correlations.
 
 ## Requirements
