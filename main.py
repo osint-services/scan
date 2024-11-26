@@ -95,7 +95,7 @@ async def boot():
         logger.exception(e)
 
 
-@app.get("/{username}")
+@app.get("/wmn/{username}")
 async def get_username_data(username: str):
     if has_username_been_searched(username):
         logger.info(f"Username '{username}' has been previously searched.")
