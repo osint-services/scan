@@ -1,3 +1,2 @@
-fastapi
+fastapi[standard]
 httpx
-sqlite3
