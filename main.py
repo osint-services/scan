@@ -1,7 +1,7 @@
 import httpx
 import logging
 
-from fastapi import FastAPI, BackgroundTasks, status
+from fastapi import FastAPI, BackgroundTasks, status, HTTPException
 from fastapi.responses import JSONResponse
 from http import HTTPStatus
 
@@ -95,12 +95,15 @@ async def boot():
         logger.error("Failed to ingest website data")
         logger.exception(e)
 
+task_status: dict[str, dict] = {}
+
 async def search_for_username(username: str) -> list:
     sites_found = []
     insert_username(username)
     logger.info(f"Started searching for username '{username}' on the sites.")
 
     sites = get_all_sites()
+    task_status[username] = {"status": "in_progress", "found_sites" : []}
     for site_data in sites:
         site = site_data[2]
         try:
@@ -111,22 +114,30 @@ async def search_for_username(username: str) -> list:
                 if not site_data['valid']:
                     continue
                 
-            if response.status_code == 200:
+            if response.status_code == HTTPStatus.OK:
                 insert_username_correlation(username, site_data)
                 sites_found.append(site_data)
+                task_status[username]["found_sites"].append(site_data)
                 logger.debug(f"Username '{username}' found on site: {site}")
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError) as e:
             logger.warning(f"Error while checking site '{site}' for username '{username}': {e}")
             continue
         except Exception as e:
             logger.exception(f"Unexpected error while searching for username '{username}' on site '{site}'")
+            task_status[username] = {"status": "failed", "error": str(e)}
             raise e
 
     logger.info(f"Finished searching for username '{username}'. Found {len(sites_found)} sites.")
+    task_status[username]["status"] = "completed"
     return sites_found
 
 @app.get("/wmn/search/{username}")
-async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false",):
+async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false"):
+    if username in task_status:
+        current_task_status = task_status[username]['status']
+        if current_task_status == 'in_progress' or current_task_status == 'pending':
+            return JSONResponse(status_code=HTTPStatus.PROCESSING, content={'message': f'Search for {username} in progress'})
+    
     refresh = refresh.lower()
     
     # if refresh has been set to true, then bypass this value even if the username was previously cached.
@@ -141,5 +152,13 @@ async def get_username_data(username: str, background_tasks: BackgroundTasks,  r
     
     background_tasks.add_task(search_for_username, username)
     
+    task_status[username] = {"status": "pending", "found_sites": []}
     data = { "message": f"Search for username {username} started." }
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=data)
+
+@app.get("/wmn/status/{username}")
+async def get_search_status(username: str):
+    if username not in task_status:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Username search task not found.")
+    
+    return task_status[username]
