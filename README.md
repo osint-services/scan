@@ -28,7 +28,7 @@ results need to be refreshed. A mechanism to check the status of the search as i
     * Query Parameters
         * refresh (boolean): this can be either `true` or `false`. Defaults to `false`. It determines if a request should ignore the cache and build new search results for a given username. This can be useful if cached results are too old.
 
-Data is returned with the format of:
+Data is returned with the format of (e.g. searching for `osint-services` username):
 ```json
 [{
     "name": "GitHub",
