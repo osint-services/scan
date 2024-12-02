@@ -125,12 +125,19 @@ async def search_for_username(username: str) -> list:
     logger.info(f"Finished searching for username '{username}'. Found {len(sites_found)} sites.")
     return sites_found
 
-@app.get("/wmn/{username}")
-async def get_username_data(username: str, background_tasks: BackgroundTasks):
-    if has_username_been_searched(username):
-        logger.info(f"Username '{username}' has been previously searched.")
-        sites = get_sites_by_username(username)
-        return sites
+@app.get("/wmn/search/{username}")
+async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false",):
+    refresh = refresh.lower()
+    
+    # if refresh has been set to true, then bypass this value even if the username was previously cached.
+    if refresh == "false":
+        if has_username_been_searched(username):
+            logger.info(f"Username '{username}' has been previously searched.")
+            sites = get_sites_by_username(username)
+            return sites
+    else:
+        # delete search history before re-caching it
+        delete_search_history(username)
     
     background_tasks.add_task(search_for_username, username)
     
