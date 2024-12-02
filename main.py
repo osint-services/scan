@@ -1,7 +1,8 @@
 import httpx
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks, status
+from fastapi.responses import JSONResponse
 from http import HTTPStatus
 
 from .database import *
@@ -40,13 +41,13 @@ def get_site_list() -> list[dict]:
     try:
         if response.status_code == HTTPStatus.OK:
             data = response.json()
-            logger.info("Successfully retrieved site list from WhatsMyName")
+            logger.debug("Successfully retrieved site list from WhatsMyName")
             return data['sites'] # there is a schema provided by the repository which could be used for validation here
         else:
             logger.error(f"Failed to retrieve JSON. Status code: {response.status_code}")
             raise Exception(f"Failed to retrieve JSON. Status code: {response.status_code}")
     except Exception as e:
-        logger.exception("Error while fetching site list", e)
+        logger.exception(f"Failed to retrieve JSON containing list of websites from WhatsMyName dataset.\nError: {e}")
         raise Exception(f"Failed to retrieve JSON. Error: {e}")
 
 @app.on_event("startup")
@@ -94,14 +95,7 @@ async def boot():
         logger.error("Failed to ingest website data")
         logger.exception(e)
 
-
-@app.get("/wmn/{username}")
-async def get_username_data(username: str):
-    if has_username_been_searched(username):
-        logger.info(f"Username '{username}' has been previously searched.")
-        sites = get_sites_by_username(username)
-        return sites
-
+async def search_for_username(username: str) -> list:
     sites_found = []
     insert_username(username)
     logger.info(f"Started searching for username '{username}' on the sites.")
@@ -112,10 +106,15 @@ async def get_username_data(username: str):
         try:
             url = site.format(account=username) # WhatsMyName uses `account` as formatter argument
             response = await client.head(url)
+            # if data is marked as invalid, then continue
+            if 'valid' in site_data:
+                if not site_data['valid']:
+                    continue
+                
             if response.status_code == 200:
                 insert_username_correlation(username, site_data)
                 sites_found.append(site_data)
-                logger.info(f"Username '{username}' found on site: {site}")
+                logger.debug(f"Username '{username}' found on site: {site}")
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError) as e:
             logger.warning(f"Error while checking site '{site}' for username '{username}': {e}")
             continue
@@ -126,3 +125,14 @@ async def get_username_data(username: str):
     logger.info(f"Finished searching for username '{username}'. Found {len(sites_found)} sites.")
     return sites_found
 
+@app.get("/wmn/{username}")
+async def get_username_data(username: str, background_tasks: BackgroundTasks):
+    if has_username_been_searched(username):
+        logger.info(f"Username '{username}' has been previously searched.")
+        sites = get_sites_by_username(username)
+        return sites
+    
+    background_tasks.add_task(search_for_username, username)
+    
+    data = { "message": f"Search for username {username} started." }
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=data)
