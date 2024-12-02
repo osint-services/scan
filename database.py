@@ -96,7 +96,7 @@ def get_all_sites():
 def get_sites_by_username(username):
     try:
         query = """
-            SELECT s.name, s.uri_check, s.cat
+            SELECT s.name, s.uri_check, s.cat, u.search_timestamp, uc.found_timestamp
             FROM sites s
             JOIN username_correlations uc ON s.id = uc.site_id
             JOIN usernames_searched u ON u.id = uc.username_id
@@ -106,7 +106,27 @@ def get_sites_by_username(username):
         cursor.execute(query, (username,))
         sites = cursor.fetchall()
 
-        return [{"name": site[0], "uri_check": site[1].format(account=username), "cat": site[2]} for site in sites]
+        return [{"name": site[0], "uri_check": site[1].format(account=username), "cat": site[2], "search_timestamp": site[3], "found_timestamp": site[4]} for site in sites]
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in get_sites_by_username: {e}")
+        raise e
+        
+def delete_search_history(username: str):
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id FROM usernames_searched WHERE username = ?;
+        ''', (username,))
+        user_id = cursor.fetchone() 
+        if user_id:
+            user_id = user_id[0]  # Extract the ID from the result tuple.
+            cursor.execute('''
+                DELETE FROM username_correlations WHERE username_id = ?;
+            ''', (user_id,))
+        cursor.execute('''
+            DELETE FROM usernames_searched WHERE id = ?;
+        ''', (user_id,))
+        conn.commit()
+    except sqlite3.DatabaseError as e:
+        logger.error(f"Database error in delete_search_history: {e}")
         raise e
