@@ -1,5 +1,5 @@
-# WhatsMyName
-WhatsMyName is an OSINT microservice that searches the [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) dataset for username hits from various websites.
+# scan
+scan is an OSINT microservice that searches the [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) dataset for username hits from various websites.
 The service uses a database to cache searches because validating usernames is costly and time-consuming so we can cache these searches so that later lookups will 
 use the results. There are ways to invalidate the cache and get fresh results if desired. The timestamps are attached to the results so a caller can decide when the
 results need to be refreshed. A mechanism to check the status of the search as it processes is also in place.
