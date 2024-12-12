@@ -131,7 +131,7 @@ async def search_for_username(username: str) -> list:
     task_status[username]["status"] = "completed"
     return sites_found
 
-@app.get("/wmn/search/{username}")
+@app.get("/scan/{username}")
 async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false"):
     if username in task_status:
         current_task_status = task_status[username]['status']
@@ -156,7 +156,7 @@ async def get_username_data(username: str, background_tasks: BackgroundTasks,  r
     data = { "message": f"Search for username {username} started." }
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=data)
 
-@app.get("/wmn/status/{username}")
+@app.get("/scan/status/{username}")
 async def get_search_status(username: str):
     if username not in task_status:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Username search task not found.")
