@@ -3,9 +3,14 @@ import logging
 
 from fastapi import FastAPI, BackgroundTasks, status, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from http import HTTPStatus
 
 from .database import *
+
+origins = [
+    "http://localhost:3000"
+]
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -29,6 +34,15 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*']
+)
+
 client = httpx.AsyncClient()
 
 """
