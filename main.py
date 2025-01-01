@@ -148,10 +148,29 @@ async def search_for_username(username: str) -> list:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+
     while True:
-        await websocket.send_json({
-            'message': 'success'
-        })
+        try:
+            message = await websocket.receive_json()
+            if message['type'] == 'CONNECTION_ESTABLISHED':
+                await websocket.send_json({
+                    'type': 'CONNECTION_ESTABLISHED'
+                })
+            elif message['type'] == 'INIT_SEARCH':
+                username = message['username']
+                print(username)
+                if has_username_been_searched(username):
+                    logger.info(f"Username '{username}' has been previously searched.")
+                    sites = get_sites_by_username(username)
+                    await websocket.send_json({
+                        'type': 'SEARCH_COMPLETE',
+                        'data': sites
+                    })
+                else:
+                    print('else')
+        except Exception as e:
+            print(f'Error {e}')
+            return
 
 @app.get("/scan/{username}")
 async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false"):
