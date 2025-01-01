@@ -1,7 +1,7 @@
 import httpx
 import logging
 
-from fastapi import FastAPI, BackgroundTasks, status, HTTPException
+from fastapi import FastAPI, BackgroundTasks, status, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from http import HTTPStatus
@@ -144,6 +144,14 @@ async def search_for_username(username: str) -> list:
     logger.info(f"Finished searching for username '{username}'. Found {len(sites_found)} sites.")
     task_status[username]["status"] = "completed"
     return sites_found
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        await websocket.send_json({
+            'message': 'success'
+        })
 
 @app.get("/scan/{username}")
 async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false"):
