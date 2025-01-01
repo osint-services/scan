@@ -1,10 +1,11 @@
 import httpx
 import logging
 
-from fastapi import FastAPI, BackgroundTasks, status, HTTPException
+from fastapi import FastAPI, BackgroundTasks, status, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from http import HTTPStatus
+from ssl import SSLError
 
 from .database import *
 
@@ -111,7 +112,7 @@ async def boot():
 
 task_status: dict[str, dict] = {}
 
-async def search_for_username(username: str) -> list:
+async def search_for_username(username: str, websocket: WebSocket) -> list:
     sites_found = []
     insert_username(username)
     logger.info(f"Started searching for username '{username}' on the sites.")
@@ -119,10 +120,9 @@ async def search_for_username(username: str) -> list:
     sites = get_all_sites()
     task_status[username] = {"status": "in_progress", "found_sites" : []}
     for site_data in sites:
-        site = site_data[2]
+        uri = site_data['uri']
         try:
-            url = site.format(account=username) # WhatsMyName uses `account` as formatter argument
-            response = await client.head(url)
+            response = await client.head(uri.format(account=username)) # WhatsMyName uses `account` as formatter argument)
             # if data is marked as invalid, then continue
             if 'valid' in site_data:
                 if not site_data['valid']:
@@ -132,18 +132,55 @@ async def search_for_username(username: str) -> list:
                 insert_username_correlation(username, site_data)
                 sites_found.append(site_data)
                 task_status[username]["found_sites"].append(site_data)
-                logger.debug(f"Username '{username}' found on site: {site}")
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError) as e:
-            logger.warning(f"Error while checking site '{site}' for username '{username}': {e}")
+                logger.debug(f"Username '{username}' found on site: {uri}")
+
+                # semd optional websocket message
+                if websocket:
+                    message = {
+                        'type': 'SEARCH_PROGRESS',
+                        'username': username,
+                        'sites_matched': task_status[username]['found_sites'],
+                        'total_number_of_sites': len(sites)
+                    }
+                    await websocket.send_json(message)
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError, SSLError) as e:
+            logger.warning(f"Error while checking site '{uri}' for username '{username}': {e}")
             continue
         except Exception as e:
-            logger.exception(f"Unexpected error while searching for username '{username}' on site '{site}'")
+            logger.exception(f"Unexpected error while searching for username '{username}' on site '{uri}'")
             task_status[username] = {"status": "failed", "error": str(e)}
             raise e
 
     logger.info(f"Finished searching for username '{username}'. Found {len(sites_found)} sites.")
     task_status[username]["status"] = "completed"
     return sites_found
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+
+    while True:
+        try:
+            message = await websocket.receive_json()
+            if message['type'] == 'CONNECTION_ESTABLISHED':
+                await websocket.send_json({
+                    'type': 'CONNECTION_ESTABLISHED'
+                })
+            elif message['type'] == 'INIT_SEARCH':
+                username = message['username']
+                if has_username_been_searched(username):
+                    logger.info(f"Username '{username}' has been previously searched.")
+                    sites = get_sites_by_username(username)
+                else:
+                    sites = await search_for_username(username, websocket)
+
+                await websocket.send_json({
+                    'type': 'SEARCH_COMPLETE',
+                    'data': sites
+                })
+        except Exception as e:
+            print(f'Error {e}')
+            return
 
 @app.get("/scan/{username}")
 async def get_username_data(username: str, background_tasks: BackgroundTasks,  refresh: str = "false"):
