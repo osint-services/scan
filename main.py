@@ -133,13 +133,16 @@ async def search_for_username(username: str, websocket: WebSocket) -> list:
                 sites_found.append(site_data)
                 task_status[username]["found_sites"].append(site_data)
                 logger.debug(f"Username '{username}' found on site: {uri}")
-                message = {
-                    'type': 'SEARCH_PROGRESS',
-                    'username': username,
-                    'sites_matched': task_status[username]['found_sites'],
-                    'total_number_of_sites': len(sites)
-                }
-                await websocket.send_json(message)
+
+                # semd optional websocket message
+                if websocket:
+                    message = {
+                        'type': 'SEARCH_PROGRESS',
+                        'username': username,
+                        'sites_matched': task_status[username]['found_sites'],
+                        'total_number_of_sites': len(sites)
+                    }
+                    await websocket.send_json(message)
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError, SSLError) as e:
             logger.warning(f"Error while checking site '{uri}' for username '{username}': {e}")
             continue
