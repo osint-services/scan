@@ -120,10 +120,9 @@ async def search_for_username(username: str, websocket: WebSocket) -> list:
     sites = get_all_sites()
     task_status[username] = {"status": "in_progress", "found_sites" : []}
     for site_data in sites:
-        site = site_data[2]
+        uri = site_data['uri']
         try:
-            url = site.format(account=username) # WhatsMyName uses `account` as formatter argument
-            response = await client.head(url)
+            response = await client.head(uri.format(account=username)) # WhatsMyName uses `account` as formatter argument)
             # if data is marked as invalid, then continue
             if 'valid' in site_data:
                 if not site_data['valid']:
@@ -133,7 +132,7 @@ async def search_for_username(username: str, websocket: WebSocket) -> list:
                 insert_username_correlation(username, site_data)
                 sites_found.append(site_data)
                 task_status[username]["found_sites"].append(site_data)
-                logger.debug(f"Username '{username}' found on site: {site}")
+                logger.debug(f"Username '{username}' found on site: {uri}")
                 message = {
                     'type': 'SEARCH_PROGRESS',
                     'username': username,
@@ -142,10 +141,10 @@ async def search_for_username(username: str, websocket: WebSocket) -> list:
                 }
                 await websocket.send_json(message)
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError, SSLError) as e:
-            logger.warning(f"Error while checking site '{site}' for username '{username}': {e}")
+            logger.warning(f"Error while checking site '{uri}' for username '{username}': {e}")
             continue
         except Exception as e:
-            logger.exception(f"Unexpected error while searching for username '{username}' on site '{site}'")
+            logger.exception(f"Unexpected error while searching for username '{username}' on site '{uri}'")
             task_status[username] = {"status": "failed", "error": str(e)}
             raise e
 

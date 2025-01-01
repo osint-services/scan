@@ -52,7 +52,7 @@ def insert_username_correlation(username, site):
         cursor.execute('SELECT id FROM usernames_searched WHERE username = ?', (username,))
         username_id = cursor.fetchone()
 
-        cursor.execute('SELECT id FROM sites WHERE name = ? AND uri_check = ?', (site[1], site[2]))
+        cursor.execute('SELECT id FROM sites WHERE name = ? AND uri_check = ?', (site['title'], site['uri']))
         wm_data_id = cursor.fetchone()
 
         if username_id and wm_data_id:
@@ -61,9 +61,9 @@ def insert_username_correlation(username, site):
                 VALUES (?, ?)
             ''', (username_id[0], wm_data_id[0]))
             conn.commit()
-            logger.info(f"Correlation for username '{username}' and site '{site[1]}' inserted.")
+            logger.info(f"Correlation for username '{username}' and site '{site['uri']}' inserted.")
         else:
-            logger.warning(f"No correlation found for username '{username}' and site '{site[1]}'.")
+            logger.warning(f"No correlation found for username '{username}' and site '{site[uri]}'.")
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in insert_username_correlation: {e}")
         raise e
@@ -81,13 +81,20 @@ def insert_sites(sites: list[dict]):
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in insert_sites: {e}")
         raise e
-
+    
 
 def get_all_sites():
     try:
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM sites')
-        return cursor.fetchall()
+        cursor.execute('SELECT name, uri_check, cat FROM sites')
+        def serialize_site(site: list) -> dict:
+            return {
+                "title": site[0],
+                "uri": site[1],
+                "category": site[2],
+            }
+        sites = cursor.fetchall()
+        return [serialize_site(site) for site in sites]
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in get_all_sites: {e}")
         raise e
@@ -106,7 +113,16 @@ def get_sites_by_username(username):
         cursor.execute(query, (username,))
         sites = cursor.fetchall()
 
-        return [{"name": site[0], "uri_check": site[1].format(account=username), "cat": site[2], "search_timestamp": site[3], "found_timestamp": site[4]} for site in sites]
+        def serialize_site(site: list) -> dict:
+            return {
+                "title": site[0],
+                "uri": site[1].format(account=username),
+                "category": site[2],
+                "search_timestamp": site[3],
+                "found_timestamp": site[4]
+            }
+
+        return [serialize_site(site) for site in sites]
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in get_sites_by_username: {e}")
         raise e
