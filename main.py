@@ -5,6 +5,7 @@ from fastapi import FastAPI, BackgroundTasks, status, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from http import HTTPStatus
+from ssl import SSLError
 
 from .database import *
 
@@ -111,7 +112,7 @@ async def boot():
 
 task_status: dict[str, dict] = {}
 
-async def search_for_username(username: str) -> list:
+async def search_for_username(username: str, websocket: WebSocket) -> list:
     sites_found = []
     insert_username(username)
     logger.info(f"Started searching for username '{username}' on the sites.")
@@ -133,7 +134,14 @@ async def search_for_username(username: str) -> list:
                 sites_found.append(site_data)
                 task_status[username]["found_sites"].append(site_data)
                 logger.debug(f"Username '{username}' found on site: {site}")
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError) as e:
+                message = {
+                    'type': 'SEARCH_PROGRESS',
+                    'username': username,
+                    'sites_matched': task_status[username]['found_sites'],
+                    'total_number_of_sites': len(sites)
+                }
+                await websocket.send_json(message)
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, ValueError, SSLError) as e:
             logger.warning(f"Error while checking site '{site}' for username '{username}': {e}")
             continue
         except Exception as e:
@@ -158,16 +166,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
             elif message['type'] == 'INIT_SEARCH':
                 username = message['username']
-                print(username)
                 if has_username_been_searched(username):
                     logger.info(f"Username '{username}' has been previously searched.")
                     sites = get_sites_by_username(username)
-                    await websocket.send_json({
-                        'type': 'SEARCH_COMPLETE',
-                        'data': sites
-                    })
                 else:
-                    print('else')
+                    sites = await search_for_username(username, websocket)
+
+                await websocket.send_json({
+                    'type': 'SEARCH_COMPLETE',
+                    'data': sites
+                })
         except Exception as e:
             print(f'Error {e}')
             return
