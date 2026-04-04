@@ -1,8 +1,7 @@
 # scan
 scan is an OSINT microservice that searches the [WhatsMyName](https://github.com/WebBreacher/WhatsMyName) dataset for username hits from various websites.
-The service uses a database to cache searches because validating usernames is costly and time-consuming so we can cache these searches so that later lookups will 
-use the results. There are ways to invalidate the cache and get fresh results if desired. The timestamps are attached to the results so a caller can decide when the
-results need to be refreshed. A mechanism to check the status of the search as it processes is also in place.
+The service uses a database to cache search results because validating usernames is costly and time-consuming. Cached results are reused on repeat lookups, and a refresh option exists to rebuild the results.
+A status endpoint is exposed so clients can poll long-running searches instead of relying on a single request timeout.
 
 ## Requirements
 - Python 3.9 or higher
@@ -16,48 +15,64 @@ results need to be refreshed. A mechanism to check the status of the search as i
 1. Create Python virtual environment. `python -m venv venv`
 2. Activate virtual environment. `source venv/bin/activate`
 3. Install dependencies. `pip install -r requirements.txt`
-4. Start server. `fastapi dev main.py` 
+4. Start server. `fastapi dev main.py`
 
 ### Endpoints
-- GET `/scan/{username}` - Pass the username that you would like searched. If this is the first time the username has been searched then the search results will need to be built for the first time. Previous lookups will use the cached results until they are invalidated.
-    * A new search is initiated if no previous search has been cached. When a search is started a 202 ACCEPTED HTTP status code will be returned to indicate the beginning of the processing.
-    * When the processing of a username has begun, subsequent accesses to the endpoint will result in a 102 PROCESSING HTTP status code which means the search is still being executed, this can sometimes take a long time given the size of the dataset and the fact that an HTTP request has to be made for each site.
-    * You can use the `/scan/status/{username}` endpoint to retrieve the status of the search at any given time.
-    * Cached searches will return the results with a 200 OK HTTP status code.
+- GET `/scan/{username}`
+    * Starts a new search if the username has not been cached yet.
+    * Returns `202 Accepted` when a new background search is started.
+    * Returns `102 Processing` when a search for the username is already pending or in progress.
+    * Returns cached results with `200 OK` if the username has already been searched and no refresh is requested.
+    * Query Parameters:
+        * `refresh` (`true` or `false`, default `false`) — when set to `true`, the cache is invalidated and the username search is rebuilt.
 
-    * Query Parameters
-        * refresh (boolean): this can be either `true` or `false`. Defaults to `false`. It determines if a request should ignore the cache and build new search results for a given username. This can be useful if cached results are too old.
+- GET `/scan/status/{username}`
+    * Returns the current status of a background search.
+    * Use this endpoint to poll progress until the search reaches `completed`.
 
-Data is returned with the format of (e.g. searching for `osint-services` username):
+### Example response for `/scan/{username}` when cached
 ```json
-[{
-    "name": "GitHub",
-    "uri_check": "https://github.com/osint-services",
-    "cat": "coding",
+[
+  {
+    "title": "GitHub",
+    "uri": "https://github.com/osint-services",
+    "profile_url": "https://github.com/osint-services",
+    "category": "coding",
     "search_timestamp": "2024-11-02 17:01:27",
     "found_timestamp": "2024-11-02 17:01:28"
-}, {
-    "name": "Facebook",
-    "uri_check": "https://facebook.com/osint-services",
-    "cat": "social",
+  },
+  {
+    "title": "Facebook",
+    "uri": "https://facebook.com/osint-services",
+    "profile_url": "https://facebook.com/osint-services",
+    "category": "social",
     "search_timestamp": "2024-11-02 17:01:27",
     "found_timestamp": "2024-11-02 17:01:28"
-}]
+  }
+]
 ```
 
-- GET `/scan/status/{username}` - Get the search status of the given username.
-
-Data is returned with the format of:
+### Example response for `/scan/status/{username}`
 ```json
 {
-    "status": "in_progress",
-    "sites_found": [{
-        "name": "GitHub",
-        "uri_check": "https://github.com/osint-services",
-        "cat": "coding",
-        "search_timestamp": "2024-11-02 17:01:27",
-        "found_timestamp": "2024-11-02 17:01:28"
-    }]
+  "status": "in_progress",
+  "found_sites": [
+    {
+      "title": "GitHub",
+      "uri": "https://github.com/osint-services",
+      "profile_url": "https://github.com/osint-services",
+      "category": "coding",
+      "search_timestamp": "2024-11-02 17:01:27",
+      "found_timestamp": "2024-11-02 17:01:28"
+    }
+  ],
+  "total_sites": 200,
+  "checked_sites": 50
 }
 ```
+
+### Notes
+- This service uses background processing and polling rather than long-lived request timeouts.
+- The result validation step checks page content and common profile signals to reduce false positives from login, not-found, or generic landing pages.
+- If a search fails, `GET /scan/status/{username}` will return a `failed` status and an `error` field may be included in the response.
 

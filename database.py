@@ -2,7 +2,7 @@ import sqlite3
 import logging
 
 # Connect to the SQLite database (or create it if it doesn't exist)
-conn = sqlite3.connect('whatsmyname.db')
+conn = sqlite3.connect('whatsmyname.db', check_same_thread=False)
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -10,6 +10,7 @@ logger.setLevel(logging.INFO)  # You can change to DEBUG or ERROR based on your 
 
 def has_username_been_searched(username):
     try:
+        logger.debug(f"Checking cache for username '{username}'")
         cursor = conn.cursor()
         query = """
             SELECT 1
@@ -19,14 +20,13 @@ def has_username_been_searched(username):
         cursor.execute(query, (username,))
         result = cursor.fetchone()
         if result:
-            logger.info(f"Username '{username}' has been searched.")
+            logger.info(f"Username '{username}' cache hit.")
             return True
-        else:
-            logger.info(f"Username '{username}' has not been searched.")
-            return False
+        logger.info(f"Username '{username}' not found in cache.")
+        return False
     except sqlite3.DatabaseError as e:
-        logger.error(f"Database error in has_username_been_searched: {e}")
-        raise e
+        logger.exception("Database error in has_username_been_searched")
+        raise
 
 
 def insert_username(username):
@@ -63,7 +63,7 @@ def insert_username_correlation(username, site):
             conn.commit()
             logger.info(f"Correlation for username '{username}' and site '{site['uri']}' inserted.")
         else:
-            logger.warning(f"No correlation found for username '{username}' and site '{site[uri]}'.")
+            logger.warning(f"No correlation found for username '{username}' and site '{site['uri']}'.")
     except sqlite3.DatabaseError as e:
         logger.error(f"Database error in insert_username_correlation: {e}")
         raise e
@@ -94,10 +94,11 @@ def get_all_sites():
                 "category": site[2],
             }
         sites = cursor.fetchall()
+        logger.debug(f"Loaded {len(sites)} site definitions from the database")
         return [serialize_site(site) for site in sites]
     except sqlite3.DatabaseError as e:
-        logger.error(f"Database error in get_all_sites: {e}")
-        raise e
+        logger.exception("Database error in get_all_sites")
+        raise
 
 
 def get_sites_by_username(username):
@@ -112,11 +113,14 @@ def get_sites_by_username(username):
         cursor = conn.cursor()
         cursor.execute(query, (username,))
         sites = cursor.fetchall()
+        logger.info(f"Returning {len(sites)} cached matches for username '{username}'")
 
         def serialize_site(site: list) -> dict:
+            profile_url = site[1].format(account=username)
             return {
                 "title": site[0],
-                "uri": site[1].format(account=username),
+                "uri": profile_url,
+                "profile_url": profile_url,
                 "category": site[2],
                 "search_timestamp": site[3],
                 "found_timestamp": site[4]
@@ -124,8 +128,8 @@ def get_sites_by_username(username):
 
         return [serialize_site(site) for site in sites]
     except sqlite3.DatabaseError as e:
-        logger.error(f"Database error in get_sites_by_username: {e}")
-        raise e
+        logger.exception("Database error in get_sites_by_username")
+        raise
         
 def delete_search_history(username: str):
     try:
@@ -133,16 +137,19 @@ def delete_search_history(username: str):
         cursor.execute('''
             SELECT id FROM usernames_searched WHERE username = ?;
         ''', (username,))
-        user_id = cursor.fetchone() 
-        if user_id:
-            user_id = user_id[0]  # Extract the ID from the result tuple.
-            cursor.execute('''
-                DELETE FROM username_correlations WHERE username_id = ?;
-            ''', (user_id,))
+        user_id = cursor.fetchone()
+        if not user_id:
+            logger.info(f"No cache entry found for username '{username}' to delete")
+            return
+
+        user_id = user_id[0]
+        cursor.execute('''
+            DELETE FROM username_correlations WHERE username_id = ?;
+        ''', (user_id,))
         cursor.execute('''
             DELETE FROM usernames_searched WHERE id = ?;
         ''', (user_id,))
         conn.commit()
     except sqlite3.DatabaseError as e:
-        logger.error(f"Database error in delete_search_history: {e}")
-        raise e
+        logger.exception("Database error in delete_search_history")
+        raise
