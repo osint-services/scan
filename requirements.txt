@@ -1,5 +1,3 @@
 fastapi[standard]
 httpx
-websockets
-anthropic
 python-dotenv
