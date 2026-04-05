@@ -171,8 +171,9 @@ async def search_for_username(username: str) -> list:
                              '{username}' on site '{validation_uri}'")
             raise e
 
-    logger.info(f"Finished background search for username '{username}'. Found {
-            len(sites_found)} matches.")
+    logger.info(
+        f"Finished background search for username '{username}'. Found {len(sites_found)} matches."
+    )
     return sites_found
 
 
