@@ -2,14 +2,14 @@
 Profile Validation Service
 """
 
-import httpx
 import logging
+from http import HTTPStatus
+from ssl import SSLError
 
+import httpx
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from http import HTTPStatus
-from ssl import SSLError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -56,20 +56,30 @@ client = httpx.AsyncClient()
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
+    """
+    Clean up resources on shutdown, such as closing the HTTPX client.
+    """
     logger.info("Shutting down HTTPX client")
     await client.aclose()
 
 
 async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
+    """
+    For some sites, a HEAD request may return 200 OK for both existing and non-existing profiles.
+    In such cases, we need to perform a GET request to confirm the existence of the profile.
+    This function handles that logic, including error handling for various exceptions that may
+    occur during the HTTP request.
+    """
     try:
         response = await client.get(url, follow_redirects=True, timeout=15.0)
-    except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.TooManyRedirects, ValueError, SSLError) as e:
+    except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout,
+            httpx.ReadError, httpx.TooManyRedirects, ValueError, SSLError) as e:
         logger.warning(
             f"Profile validation failed for '{username}' at '{url}': {e}")
         return False
     except Exception as e:
         logger.exception(
-            f"Unexpected error during profile validation for '{username}' at '{url}'")
+            f"Unexpected error during profile validation for '{username}' at '{url}': {e}")
         return False
 
     if response.status_code != HTTPStatus.OK:
@@ -91,11 +101,23 @@ async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
 
 
 def get_site_list(username: str) -> list[dict]:
-    return [{'title': 'X', 'profile_uri': f'https://x.com/{username}',
-             'validation_uri': f'https://api.x.com/i/users/username_available.json?username={username}'}]
+    """
+    Returns a list of site data dictionaries for the given username. Each dictionary contains:
+    """
+    return [{
+        'title': 'X',
+        'profile_uri': f'https://x.com/{username}',
+        'validation_uri': f'https://api.x.com/i/users/username_available.json?username={username}'
+    }]
 
 
 async def search_for_username(username: str) -> list:
+    """
+    Searches for the given username across multiple sites by performing HEAD requests to the
+    validation URIs. If a HEAD request returns 200 OK, it performs a GET request to confirm
+    the existence of the profile. The function handles various exceptions that may occur during
+    HTTP requests and logs relevant information throughout the process.
+    """
     sites_found = []
     sites = get_site_list(username)
     for site_data in sites:
@@ -104,7 +126,8 @@ async def search_for_username(username: str) -> list:
             response = await client.head(validation_uri, follow_redirects=True)
 
             if response.status_code == HTTPStatus.OK:
-                is_profile = await confirm_profile_exists(validation_uri, username, site_data.get('title', 'Unknown'))
+                title = site_data.get('title', 'Unknown')
+                is_profile = await confirm_profile_exists(validation_uri, username, title)
                 if not is_profile:
                     logger.debug(
                         f"Head-only match rejected for '{username}' on {validation_uri}")
@@ -121,14 +144,15 @@ async def search_for_username(username: str) -> list:
                 logger.debug(
                     f"No match for '{username}' on site: {validation_uri} (status={
                         response.status_code})")
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.TooManyRedirects, ValueError, SSLError) as e:
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError,
+                httpx.TooManyRedirects, ValueError, SSLError) as e:
             logger.warning(
                 f"Request failed for '{username}' on site '{validation_uri}': {e}")
             continue
         except Exception as e:
-            logger.exception(
-                f"Unexpected error while searching for username '{username}' on site '{validation_uri}'")
-            raise
+            logger.exception(f"Unexpected error while searching for username \
+                             '{username}' on site '{validation_uri}'")
+            raise e
 
     logger.info(
         f"Finished background search for username '{username}'. Found {
@@ -138,6 +162,9 @@ async def search_for_username(username: str) -> list:
 
 @app.get("/scan/{username}")
 async def get_username_data(username: str):
+    """
+    Endpoint to scan for the given username across multiple sites. It logs the incoming request and calls the search function to perform the scan, returning the results as a JSON response with a 202 Accepted status code.
+    """
     logger.info(f"Received scan request for '{username}'")
     data = await search_for_username(username)
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=data)
