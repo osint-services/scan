@@ -16,9 +16,9 @@ Profile validation microservice that checks whether usernames exist on social me
 4. Start server. `fastapi dev main.py`
 
 ### Endpoints
-- POST `/scan/{username}`
+- GET `/scan/{username}`
     * Validates whether the given username exists on supported platforms.
-    * Returns `202 Accepted` with results containing found profiles.
+    * Returns `200 OK` with results containing found profiles.
     * Performs HEAD requests to platform validation endpoints and follows up with GET requests to confirm profile existence.
 
 ### Example response for `/scan/{username}`

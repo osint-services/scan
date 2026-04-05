@@ -11,6 +11,9 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from pydantic import ValidationError
+
+from models import SiteData, SiteResult, XValidationResponse, XUsernameAvailabilityReason
 
 load_dotenv()
 
@@ -92,51 +95,56 @@ async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
         )
         return False
 
-    # X returns an object that has a valid marker on it, if it's not valid
     logger.info(
         f"Checking profile existence for '{username}' on {url} with title '{title}'"
     )
+
+    # map out responses using pydantic and validate the response structure, then determine if profile exists based on the response data
     if title.lower() == "x":
-        username_available = response.json().get("valid")
-        reason = response.json().get("reason", "No reason provided").lower()
-        # if username not available because it's taken then profile exists, if
-        # it's not available because it's invalid then profile doesn't exist
-        return not username_available and reason == "taken"
+        try:
+            validation = XValidationResponse.parse_obj(response.json())
+        except (ValidationError, ValueError) as e:
+            logger.warning(
+                f"Invalid validation response for '{username}' on '{url}': {e}"
+            )
+            return False
+
+        # if username is not available because it's taken then profile exists
+        return not validation.valid and validation.reason == XUsernameAvailabilityReason.taken
 
     return False
 
 
-def get_site_list(username: str) -> list[dict]:
+def get_site_list(username: str) -> list[SiteData]:
     """
-    Returns a list of site data dictionaries for the given username. Each dictionary contains:
+    Returns a list of site data objects for the given username.
     """
     return [
-        {
-            "title": "X",
-            "profile_uri": f"https://x.com/{username}",
-            "validation_uri": f"https://api.x.com/i/users/username_available.json?username={username}",
-        }
+        SiteData(
+            title="X",
+            profile_uri=f"https://x.com/{username}",
+            validation_uri=f"https://api.x.com/i/users/username_available.json?username={username}",
+        )
     ]
 
 
-async def search_for_username(username: str) -> list:
+async def search_for_username(username: str) -> list[SiteResult]:
     """
     Searches for the given username across multiple sites by performing HEAD requests to the
     validation URIs. If a HEAD request returns 200 OK, it performs a GET request to confirm
     the existence of the profile. The function handles various exceptions that may occur during
     HTTP requests and logs relevant information throughout the process.
     """
-    sites_found = []
+    sites_found: list[SiteResult] = []
     sites = get_site_list(username)
     for site_data in sites:
-        validation_uri = site_data["validation_uri"]
+        validation_uri = site_data.validation_uri
         try:
             response = await client.head(validation_uri, follow_redirects=True)
 
             if response.status_code == HTTPStatus.OK:
-                title = site_data.get("title", "Unknown")
                 is_profile = await confirm_profile_exists(
-                    validation_uri, username, title
+                    validation_uri, username, site_data.title
                 )
                 if not is_profile:
                     logger.debug(
@@ -144,10 +152,12 @@ async def search_for_username(username: str) -> list:
                     )
                     continue
 
-                site_result = site_data.copy()
-                site_result["profile_uri"] = site_data["profile_uri"]
-                site_result["validation_uri"] = validation_uri
-                site_result["is_valid_profile"] = is_profile
+                site_result = SiteResult(
+                    title=site_data.title,
+                    profile_uri=site_data.profile_uri,
+                    validation_uri=site_data.validation_uri,
+                    is_valid_profile=is_profile,
+                )
                 sites_found.append(site_result)
                 logger.debug(f"Username '{username}' found on site: {validation_uri}")
             else:
@@ -180,8 +190,8 @@ async def search_for_username(username: str) -> list:
 @app.get("/scan/{username}")
 async def get_username_data(username: str):
     """
-    Endpoint to scan for the given username across multiple sites. It logs the incoming request and calls the search function to perform the scan, returning the results as a JSON response with a 202 Accepted status code.
+    Endpoint to scan for the given username across multiple sites. It logs the incoming request and calls the search function to perform the scan, returning the results as a JSON response with a 200 OK status code.
     """
     logger.info(f"Received scan request for '{username}'")
     data = await search_for_username(username)
-    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=data)
+    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
