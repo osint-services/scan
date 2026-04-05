@@ -1,0 +1,4 @@
+sites:
+  - title: "X"
+    profile_uri: "https://x.com/{username}"
+    validation_uri: "https://api.x.com/i/users/username_available.json?username={username}"
