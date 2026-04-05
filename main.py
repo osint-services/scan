@@ -74,8 +74,7 @@ async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
 
     if response.status_code != HTTPStatus.OK:
         logger.debug(
-            f"Profile validation GET returned {
-                response.status_code} for {url}")
+            f"Profile validation GET returned {response.status_code} for {url}")
         return False
 
     # X returns an object that has a valid marker on it, if it's not valid
