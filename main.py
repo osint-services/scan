@@ -142,8 +142,8 @@ async def search_for_username(username: str) -> list:
                     f"Username '{username}' found on site: {validation_uri}")
             else:
                 logger.debug(
-                    f"No match for '{username}' on site: {validation_uri} (status={
-                        response.status_code})")
+                    f"No match for '{username}' on site: {validation_uri} \
+                        (status={response.status_code})")
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError,
                 httpx.TooManyRedirects, ValueError, SSLError) as e:
             logger.warning(
