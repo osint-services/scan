@@ -2,46 +2,32 @@
 Profile Validation Service
 """
 
-import logging
+from contextlib import asynccontextmanager
 from http import HTTPStatus
+from pathlib import Path
 from ssl import SSLError
 
 import httpx
-from fastapi import FastAPI, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from pydantic import ValidationError
+import yaml
 
-from models import SiteData, SiteResult, XValidationResponse, XUsernameAvailabilityReason
-
-load_dotenv()
+from .config import logger
+from .models import SiteData, SiteResult, XValidationResponse, XUsernameAvailabilityReason
 
 origins = ["http://localhost:3000"]
 
-# Set up logger
-logger = logging.getLogger(__name__)
-# You can change to DEBUG or ERROR based on your needs
-logger.setLevel(logging.DEBUG)
+client = httpx.AsyncClient()
 
-# Create console handler and set level to INFO
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Starting application lifecycle")
+    yield
+    logger.info("Shutting down HTTPX client")
+    await client.aclose()
 
-# Create file handler to store logs
-fh = logging.FileHandler("finder.log")
-fh.setLevel(logging.DEBUG)
-
-# Create formatter and add it to the handlers
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-ch.setFormatter(formatter)
-fh.setFormatter(formatter)
-
-# Add the handlers to the logger
-logger.addHandler(ch)
-logger.addHandler(fh)
-
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,16 +37,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = httpx.AsyncClient()
+def load_site_config(config_path: Path) -> list[dict]:
+    if not config_path.exists():
+        raise FileNotFoundError(f"Site config not found: {config_path}")
+
+    with config_path.open("r", encoding="utf-8") as fh:
+        config = yaml.safe_load(fh)
+
+    if not config or "sites" not in config:
+        raise ValueError("Site config must contain a top-level 'sites' key")
+
+    return config["sites"]
+
+SITE_CONFIG = load_site_config(Path(__file__).resolve().parent / "sites.yaml")
 
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
+def get_site_list(username: str) -> list[SiteData]:
     """
-    Clean up resources on shutdown, such as closing the HTTPX client.
+    Returns a list of site data objects for the given username by applying the configured templates.
     """
-    logger.info("Shutting down HTTPX client")
-    await client.aclose()
+    return [
+        SiteData(
+            title=site["title"],
+            profile_uri=site["profile_uri"].format(username=username),
+            validation_uri=site["validation_uri"].format(username=username),
+        )
+        for site in SITE_CONFIG
+    ]
 
 
 async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
@@ -113,20 +116,6 @@ async def confirm_profile_exists(url: str, username: str, title: str) -> bool:
         return not validation.valid and validation.reason == XUsernameAvailabilityReason.taken
 
     return False
-
-
-def get_site_list(username: str) -> list[SiteData]:
-    """
-    Returns a list of site data objects for the given username.
-    """
-    return [
-        SiteData(
-            title="X",
-            profile_uri=f"https://x.com/{username}",
-            validation_uri=f"https://api.x.com/i/users/username_available.json?username={username}",
-        )
-    ]
-
 
 async def search_for_username(username: str) -> list[SiteResult]:
     """
@@ -194,4 +183,4 @@ async def get_username_data(username: str):
     """
     logger.info(f"Received scan request for '{username}'")
     data = await search_for_username(username)
-    return JSONResponse(status_code=status.HTTP_200_OK, content=data)
+    return data
