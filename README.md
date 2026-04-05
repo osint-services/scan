@@ -1,6 +1,6 @@
-# scan
+# profile-checker
 
-Profile validation microservice that checks whether usernames exist on social media platforms. The service validates profiles by performing HTTP requests to platform-specific endpoints and confirms existence through response validation.
+Profile validation microservice called `profile-checker` that checks whether usernames exist on social media platforms. The service validates profiles by performing HTTP requests to platform-specific endpoints and confirms existence through response validation.
 
 ## Requirements
 - Python 3.9 or higher
